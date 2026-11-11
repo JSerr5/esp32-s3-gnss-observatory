@@ -1,0 +1,35 @@
+# ---------------------------------------------------------------------------
+#  sdkconfig.defaults - NEO-6M Auditor (ESP32-S3, ESP-IDF 5.x)
+# ---------------------------------------------------------------------------
+
+# Tick de FreeRTOS a 1 kHz (timeouts deterministas de 1 ms en ACK/NAK)
+CONFIG_FREERTOS_HZ=1000
+
+# Pila de la tarea app_main (solo arranca el sistema)
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=6144
+
+# printf con soporte COMPLETO de punto flotante (%f, %e, %g)
+# (IDF <= 5.2 usa NEWLIB_*, IDF >= 5.3 usa LIBC_NEWLIB_*; ambas se dejan)
+CONFIG_NEWLIB_NANO_FORMAT=n
+CONFIG_LIBC_NEWLIB_NANO_FORMAT=n
+
+# Consola por UART0 a 115200 (puente USB-UART de la DevKitC-1; no usa GPIO 4-6)
+CONFIG_ESP_CONSOLE_UART_DEFAULT=y
+CONFIG_ESP_CONSOLE_UART_BAUDRATE=115200
+
+# Nivel de log del sistema (la consola estructurada usa printf propio)
+CONFIG_LOG_DEFAULT_LEVEL_WARN=y
+
+# Deteccion de desbordamiento de pila
+CONFIG_FREERTOS_CHECK_STACKOVERFLOW_CANARY=y
+
+# Rendimiento
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
+CONFIG_COMPILER_OPTIMIZATION_PERF=y
+
+# El ISR de GPIO (PPS en GPIO6) vive en IRAM
+CONFIG_GPIO_CTRL_FUNC_IN_IRAM=y
+
+# Tamano de Flash de la placa esp32-s3-devkitc-1 (8 MB)
+CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
+

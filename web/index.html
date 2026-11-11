@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Observatorio Celeste GNSS 3D — u-blox NEO-6M-0-001 &amp; ESP32-S3</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600;700&amp;display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="./css/main.css" />
+</head>
+<body>
+  <!-- Lienzo WebGL Three.js a pantalla completa -->
+  <div id="canvas-container" aria-label="Observatorio Celeste 3D"></div>
+
+  <!-- Etiquetas 2D proyectadas sobre la escena 3D (Satélites, Sol, Luna, Cardinales) -->
+  <div id="labels-layer"></div>
+
+  <!-- Tarjeta flotante de inspección Raycasting al pasar el cursor o hacer clic en un satélite -->
+  <div id="sat-tooltip" class="sat-tooltip hidden"></div>
+
+  <!-- BARRA SUPERIOR: Estado del enlace, Reloj Atómico, Condición Solar/Lunar y Modos de Cámara -->
+  <header class="topbar glass-panel">
+    <div class="brand-block">
+      <div class="status-orb" id="conn-orb" title="Estado del enlace"></div>
+      <div>
+        <div class="brand-title">OBSERVATORIO CELESTE GNSS 3D <span class="badge-chip">u-blox NEO-6M-0-001 · ROM 7.03</span></div>
+        <div class="brand-subtitle" id="location-subtitle">Estación GNSS Referencia (+0.0000000°, +0.0000000° · 0.0 m s.n.m.)</div>
+      </div>
+    </div>
+
+    <div class="clock-block">
+      <div class="clock-item">
+        <span class="clock-label">TIEMPO ATÓMICO UTC</span>
+        <span class="clock-value mono" id="hud-utc-clock">2026-11-09 15:57:03Z</span>
+      </div>
+      <div class="clock-divider"></div>
+      <div class="clock-item">
+        <span class="clock-label">HORA LOCAL (UTC-5)</span>
+        <span class="clock-value mono accent-cyan" id="hud-local-clock">2026-11-09 10:57:03</span>
+      </div>
+      <div class="clock-divider"></div>
+      <div class="clock-item">
+        <span class="clock-label">INCERTIDUMBRE tAcc</span>
+        <span class="clock-value mono accent-emerald" id="hud-tacc">27 ns</span>
+      </div>
+      <div class="clock-divider"></div>
+      <div class="clock-item">
+        <span class="clock-label">RÉGIMEN ATMOSFÉRICO</span>
+        <span class="clock-value" id="hud-sky-phase">Día Solar (+62.4°)</span>
+      </div>
+    </div>
+
+    <div class="camera-controls">
+      <button class="btn-cam active" id="btn-cam-orbit" title="Cámara Libre 3D (OrbitControls)">
+        <span>Órbita 3D</span>
+      </button>
+      <button class="btn-cam" id="btn-cam-fisheye-up" title="Ojo de Pez Cenital Inferior: Mirando desde el suelo hacia el Cenit (90° arriba)">
+        <span>Ojo de Pez (Suelo &rarr; Cenit)</span>
+      </button>
+      <button class="btn-cam" id="btn-cam-fisheye-top" title="Domo Polar Acimutal Superior (Vista Cenital 90°)">
+        <span>Domo Polar (Cenit &darr;)</span>
+      </button>
+      <button class="btn-icon" id="btn-toggle-panels" title="Mostrar / Ocultar paneles laterales">
+        <span>HUD</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- Selector rápido de paneles para pantallas divididas / laptops compactas / móviles -->
+  <nav class="mobile-panel-switcher glass-panel" aria-label="Selector de paneles">
+    <button class="btn-tab active" data-drawer="left">Telemetría [A-E]</button>
+    <button class="btn-tab" data-drawer="none">Solo Vista 3D</button>
+    <button class="btn-tab" data-drawer="right">Bóveda [F]</button>
+  </nav>
+
+  <!-- PANEL IZQUIERDO COLAPSABLE: Enlace WiFi ESP32-S3, Posición [A], Cinemática [B], Geometría DOP [C] y Reloj [D] -->
+  <aside id="left-panel" class="side-panel left-panel glass-panel">
+    <!-- 1. Conexión WiFi ESP32-S3 en Tiempo Real por Trama Completada -->
+    <section class="panel-section">
+      <div class="section-header">
+        <h2>ENLACE WIFI ESP32-S3 (TIEMPO REAL)</h2>
+        <span id="mode-pill" class="pill pill-demo">MODO DEMO (TRAMA REAL)</span>
+      </div>
+
+      <div class="conn-grid">
+        <div class="input-group">
+          <label for="esp-host-input">IP del ESP32-S3 o Hostname mDNS</label>
+          <div class="input-row">
+            <input type="text" id="esp-host-input" class="mono" value="esp32-gps.local" placeholder="192.168.4.1 o esp32-gps.local" />
+            <select id="esp-proto-select" class="mono" title="Protocolo de transporte">
+              <option value="realtime" selected>Tiempo Real (Push + 1Hz)</option>
+              <option value="rest">HTTP GET /api/gps</option>
+              <option value="sse">SSE /events</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="btn-row">
+          <button id="btn-connect" class="btn-primary">Conectar en Tiempo Real</button>
+          <button id="btn-demo-mode" class="btn-secondary">Modo Demo</button>
+        </div>
+
+        <div class="countdown-bar-wrap">
+          <div class="countdown-meta">
+            <span id="conn-status-text">Conectando en tiempo real...</span>
+            <span class="mono" id="countdown-label">Ciclo: 1.0s</span>
+          </div>
+          <div class="countdown-track">
+            <div id="countdown-fill" class="countdown-fill" style="width: 100%;"></div>
+          </div>
+        </div>
+
+        <div class="kv-grid">
+          <div class="kv-box">
+            <span class="kv-label">Tiempo Armado de Trama</span>
+            <span class="kv-val mono accent-emerald" id="val-frame-build">~98.4 ms (UBX 34.2 ms)</span>
+          </div>
+          <div class="kv-box">
+            <span class="kv-label">Serialización JSON &amp; Red</span>
+            <span class="kv-val mono accent-cyan" id="val-net-rtt">JSON 480 µs | RTT 6 ms</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2. Control Astronómico y Simulador de Hora Solar/Lunar -->
+    <section class="panel-section">
+      <div class="section-header">
+        <h2>ASTROFÍSICA SOLAR, LUNAR Y MAPA</h2>
+        <button id="btn-sync-real-time" class="btn-mini">Hora GPS</button>
+      </div>
+
+      <div class="astro-controls">
+        <div class="slider-header">
+          <span>Hora Solar Local Simulada</span>
+          <span class="mono accent-amber" id="sim-time-display">10:57 (Tiempo GPS Real)</span>
+        </div>
+        <input type="range" id="time-slider" min="0" max="1439" value="657" step="1" />
+        <div class="time-presets">
+          <button class="btn-preset" data-minutes="365">Amanecer (06:05)</button>
+          <button class="btn-preset" data-minutes="720">Mediodía (12:00)</button>
+          <button class="btn-preset" data-minutes="1075">Atardecer (17:55)</button>
+          <button class="btn-preset" data-minutes="1380">Noche (23:00)</button>
+        </div>
+
+        <div class="astro-cards">
+          <div class="astro-card sun-card">
+            <div class="astro-icon">☀</div>
+            <div>
+              <div class="astro-name">SOL (Efeméride Real)</div>
+              <div class="astro-vals mono" id="hud-sun-pos">Az: --° | Elev: --°</div>
+              <div class="astro-sub" id="hud-sun-times">Orto: --:-- | Ocaso: --:--</div>
+            </div>
+          </div>
+          <div class="astro-card moon-card">
+            <div class="astro-icon" id="hud-moon-icon">☾</div>
+            <div>
+              <div class="astro-name" id="hud-moon-phase-name">LUNA</div>
+              <div class="astro-vals mono" id="hud-moon-pos">Az: --° | Elev: --°</div>
+              <div class="astro-sub" id="hud-moon-illum">Iluminación: --%</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="layer-controls">
+          <label>Cartografía Base 3D:</label>
+          <select id="map-provider-select">
+            <option value="esri">Esri World Imagery (Satelital Real)</option>
+            <option value="osm">OpenStreetMap (Calles y Topografía)</option>
+            <option value="dark">CartoDB Dark Matter (Táctico)</option>
+          </select>
+          <label>Escala Elipsoide:</label>
+          <select id="ellipsoid-scale-select" class="mono">
+            <option value="1">1x (Escala 1:1 en metros)</option>
+            <option value="2" selected>2x (Realce visual)</option>
+            <option value="5">5x (Amplificado)</option>
+          </select>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3. Posición Geodésica [A] y Cinemática [B] -->
+    <section class="panel-section">
+      <div class="section-header">
+        <h2>[A] POSICIÓN WGS-84 &amp; [B] CINEMÁTICA</h2>
+        <span class="pill pill-ok" id="hud-fix-badge">FIX 3D (G3)</span>
+      </div>
+
+      <div class="kv-grid">
+        <div class="kv-box">
+          <span class="kv-label">Latitud (NAV-POSLLH)</span>
+          <span class="kv-val mono" id="val-lat">+0.0000000°</span>
+        </div>
+        <div class="kv-box">
+          <span class="kv-label">Longitud (NAV-POSLLH)</span>
+          <span class="kv-val mono" id="val-lon">+0.0000000°</span>
+        </div>
+        <div class="kv-box">
+          <span class="kv-label">Altitud MSL / Elipsoide</span>
+          <span class="kv-val mono" id="val-alt">0.00 m / 0.00 m</span>
+        </div>
+        <div class="kv-box">
+          <span class="kv-label">Ondulación Geoidal</span>
+          <span class="kv-val mono" id="val-geoid">+0.000 m</span>
+        </div>
+        <div class="kv-box">
+          <span class="kv-label">Incertidumbre hAcc / vAcc</span>
+          <span class="kv-val mono accent-cyan" id="val-acc">0.00 m / 0.00 m</span>
+        </div>
+        <div class="kv-box">
+          <span class="kv-label">Elipsoide 1σ (Lat/Lon/Alt)</span>
+          <span class="kv-val mono" id="val-std">0.0 / 0.0 / 0.0 m</span>
+        </div>
+        <div class="kv-box">
+          <span class="kv-label">Velocidad 2D / 3D</span>
+          <span class="kv-val mono" id="val-speed">0.000 m/s (0.00 km/h)</span>
+        </div>
+        <div class="kv-box">
+          <span class="kv-label">Vector NED (N / E / D)</span>
+          <span class="kv-val mono" id="val-ned">+0.00 / +0.00 / +0.00 m/s</span>
+        </div>
+        <div class="kv-box full-span">
+          <span class="kv-label">Coordenadas Geocéntricas ECEF (X, Y, Z)</span>
+          <span class="kv-val mono" id="val-ecef">X: +6378137.00 m | Y: +0.00 m | Z: +0.00 m</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4. Geometría DOP [C], Reloj del Cristal [D] e Ionosfera [E] -->
+    <section class="panel-section">
+      <div class="section-header">
+        <h2>[C] GEOMETRÍA DOP, [D] CRISTAL &amp; [E] IONOSFERA</h2>
+        <span class="mono sub-tag" id="val-ttff">TTFF: 94.85 s</span>
+      </div>
+
+      <div class="dop-strip">
+        <div class="dop-cell"><span class="dop-k">GDOP</span><span class="dop-v mono" id="dop-g">2.40</span></div>
+        <div class="dop-cell"><span class="dop-k">PDOP</span><span class="dop-v mono accent-emerald" id="dop-p">2.15</span></div>
+        <div class="dop-cell"><span class="dop-k">HDOP</span><span class="dop-v mono accent-cyan" id="dop-h">1.24</span></div>
+        <div class="dop-cell"><span class="dop-k">VDOP</span><span class="dop-v mono" id="dop-v">1.76</span></div>
+        <div class="dop-cell"><span class="dop-k">TDOP</span><span class="dop-v mono" id="dop-t">1.06</span></div>
+        <div class="dop-cell"><span class="dop-k">NDOP</span><span class="dop-v mono" id="dop-n">0.77</span></div>
+        <div class="dop-cell"><span class="dop-k">EDOP</span><span class="dop-v mono" id="dop-e">0.97</span></div>
+      </div>
+
+      <div class="kv-grid compact-top">
+        <div class="kv-box">
+          <span class="kv-label">Sesgo / Deriva Cristal</span>
+          <span class="kv-val mono" id="val-clk">-841810 ns | -5603 ppb</span>
+        </div>
+        <div class="kv-box">
+          <span class="kv-label">TIM-TP qErr / Semana</span>
+          <span class="kv-val mono" id="val-qerr">+4513 ps | Wk 2444 (LS 18s)</span>
+        </div>
+        <div class="kv-box">
+          <span class="kv-label">RAIM GPGBS (Lat/Lon/Alt)</span>
+          <span class="kv-val mono" id="val-raim">7.2 / 10.7 / 14.8 m (SV=0)</span>
+        </div>
+        <div class="kv-box">
+          <span class="kv-label">Salud UART1 &amp; Antena [G]</span>
+          <span class="kv-val mono accent-emerald" id="val-uart">ANT=OK | Err=0 | Salud=0xFFFFFFFF</span>
+        </div>
+      </div>
+    </section>
+  </aside>
+
+  <!-- PANEL DERECHO COLAPSABLE: Constelación en Vivo [F], Barras C/N0 y Radar Skyplot 2D -->
+  <aside id="right-panel" class="side-panel right-panel glass-panel">
+    <section class="panel-section">
+      <div class="section-header">
+        <h2>[F] BÓVEDA SATELITAL EN VIVO</h2>
+        <div class="sv-counters mono">
+          <span class="badge-used" id="count-used">6 Usados</span>
+          <span class="badge-view" id="count-view">15 Vista</span>
+        </div>
+      </div>
+
+      <!-- Leyenda visual -->
+      <div class="legend-row">
+        <span class="leg-item"><i class="dot dot-used"></i>Usado en Fix (Láser Cian)</span>
+        <span class="leg-item"><i class="dot dot-view"></i>En Vista (Ámbar)</span>
+        <span class="leg-item"><i class="dot dot-below"></i>Bajo Horizonte (&lt;0°)</span>
+      </div>
+
+      <!-- Mini Proyección Polar 2D de Referencia Rápida -->
+      <div class="skyplot-wrap">
+        <canvas id="skyplot-2d" width="250" height="250" title="Proyección Acimutal Cenital 2D (Sol, Luna y Satélites)"></canvas>
+      </div>
+
+      <!-- Barras de Potencia Portadora a Ruido C/N0 (dB-Hz) -->
+      <div class="section-subheader">
+        <span>RELACIÓN PORTADORA A RUIDO C/N0 (dB-Hz)</span>
+        <span class="mono">Umbral Efem: 27 dB-Hz</span>
+      </div>
+      <div id="cno-bars-container" class="cno-bars"></div>
+
+      <!-- Tabla interactiva de los satélites [F] (Clic para enfocar en el cielo 3D) -->
+      <div class="section-subheader">
+        <span>TABLA ORBITAL Y RESIDUALES (CLIC PARA ENFOCAR)</span>
+      </div>
+      <div class="sat-table-wrap">
+        <table class="sat-table mono">
+          <thead>
+            <tr>
+              <th>PRN</th>
+              <th>Tipo</th>
+              <th>Uso</th>
+              <th>C/N0</th>
+              <th>El°</th>
+              <th>Az°</th>
+              <th>prRes</th>
+              <th>GRS</th>
+            </tr>
+          </thead>
+          <tbody id="sat-table-body"></tbody>
+        </table>
+      </div>
+    </section>
+  </aside>
+
+  <!-- PIE DE PÁGINA FLOTANTE: Ayuda de Controles 3D y Fórmula de Proyección Esférica -->
+  <footer class="bottom-bar glass-panel">
+    <div class="formula-pill mono">
+      X = R·cos(elev)·sin(azim) &nbsp;|&nbsp; Y = R·sin(elev) &nbsp;|&nbsp; Z = -R·cos(elev)·cos(azim)
+    </div>
+    <div class="hint-text">
+      Arrastra con clic izquierdo para rotar · Rueda para zoom · Clic derecho para desplazar · Pasa el cursor o haz clic sobre cualquier satélite para inspeccionar su telemetría
+    </div>
+  </footer>
+
+  <!-- Librerías 3D y Astronómicas vía CDN Oficial -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/objects/Sky.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/suncalc/1.9.0/suncalc.min.js"></script>
+
+  <!-- Módulos de la Aplicación (Compatibles tanto con file:// directo como con http://localhost) -->
+  <script src="./js/astronomy.js"></script>
+  <script src="./js/scene3d.js"></script>
+  <script src="./js/app.js"></script>
+</body>
+</html>
