@@ -7,7 +7,7 @@
 ![PlatformIO](https://img.shields.io/badge/PlatformIO-Build%20System-F16B24?style=for-the-badge&logo=platformio&logoColor=white)
 ![Three.js](https://img.shields.io/badge/Three.js-WebGL%203D-049EF4?style=for-the-badge&logo=threedotjs&logoColor=white)
 ![u-blox](https://img.shields.io/badge/u--blox-NEO--6M--0--001-005BBB?style=for-the-badge)
-![License](https://img.shields.io/badge/License-MIT-blue?style=for-the-badge)
+[![License: MIT](https://img.shields.io/badge/⚖️%20License-MIT-blue?style=for-the-badge)](LICENSE)
 
 <p align="center">
   <b>Sistema Integral de Firmware Concurrente, Auditoría de Protocolo UBX/NMEA y Observatorio Celeste 3D en Tiempo Real</b>
@@ -252,6 +252,7 @@ pio device monitor -b 115200
 ```text
 ├── .gitignore                    # Filtros de exclusión para compilación y temporales
 ├── CMakeLists.txt                # Configuración raíz de compilación ESP-IDF
+├── LICENSE                       # Licencia oficial de código abierto MIT
 ├── platformio.ini                # Definición de entorno, flags y librerías PlatformIO
 ├── sdkconfig.defaults            # Configuración base del SDK (newlib float printf, etc.)
 ├── sdkconfig.esp32-s3-devkitc-1  # Configuración detallada para el módulo ESP32-S3
@@ -280,6 +281,6 @@ pio device monitor -b 115200
 
 ---
 
-## 📄 Licencia
+## ⚖️ Licencia
 
-Este proyecto se distribuye bajo la licencia **MIT**. Consulte el archivo de licencia para obtener más detalles.
+Este proyecto se distribuye bajo la licencia **MIT**. Consulte el archivo [LICENSE](LICENSE) para obtener más detalles.
